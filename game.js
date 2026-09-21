@@ -1,44 +1,44 @@
 // ===== 설정 =====
 var W = 640, H = 480;
+var AUTO_SPEED = 3.0;
 
-// ===== 맵 (숫자 = 벽 색상, 0 = 빈공간) =====
+// ===== 맵 (위아래가 이어지는 무한루프 복도) =====
 var map = [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,2,2,2,0,0,0,0,3,3,3,0,0,1],
-    [1,0,0,2,0,0,0,0,0,0,0,0,3,0,0,1],
-    [1,0,0,2,0,0,0,0,0,0,0,0,3,0,0,1],
+    [1,0,0,0,0,2,0,0,0,0,2,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,3,0,0,0,0,0,0,0,0,3,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,4,4,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,4,4,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,5,0,0,0,0,0,0,0,0,5,0,0,1],
-    [1,0,0,5,0,0,0,0,0,0,0,0,5,0,0,1],
-    [1,0,0,5,5,0,0,0,0,0,0,5,5,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,5,0,0,0,0,0,0,5,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,2,0,0,0,0,0,0,0,0,2,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
 ];
 var mapW = map[0].length, mapH = map.length;
 
 // 벽 색상 [R, G, B]
 var wallColors = [
     null,
-    [180, 60, 50],   // 1: 빨간 벽돌
-    [140, 140, 140],  // 2: 회색 돌
-    [50, 80, 140],    // 3: 파란 패널
-    [130, 90, 40],    // 4: 나무
-    [60, 120, 60],    // 5: 이끼
+    [180, 60, 50],
+    [140, 140, 140],
+    [50, 80, 140],
+    [130, 90, 40],
+    [60, 120, 60],
 ];
 
-// ===== 플레이어 =====
-var px = 2.5, py = 2.5;     // 위치
-var pdx = 1, pdy = 0;       // 방향 벡터
-var plx = 0, ply = 0.66;    // 카메라 평면
+// ===== 플레이어 (아래 방향으로 자동 전진) =====
+var px = 8, py = 0.5;
+var pdx = 0, pdy = 1;
+var plx = 0.66, ply = 0;
 
 // ===== 입력 =====
-var keys = {};
 var mouseDX = 0;
 var locked = false;
 var shooting = false;
@@ -54,8 +54,6 @@ var imgData = ctx.createImageData(W, H);
 var buf = imgData.data;
 
 // ===== 입력 이벤트 =====
-document.addEventListener('keydown', function(e) { keys[e.code] = true; });
-document.addEventListener('keyup', function(e) { keys[e.code] = false; });
 document.addEventListener('mousemove', function(e) {
     if (locked) mouseDX += e.movementX;
 });
@@ -71,9 +69,12 @@ document.addEventListener('pointerlockchange', function() {
 });
 
 // ===== 유틸 =====
+function wrap(v, max) {
+    return ((v % max) + max) % max;
+}
+
 function getWall(x, y) {
-    if (x < 0 || x >= mapW || y < 0 || y >= mapH) return 1;
-    return map[y][x];
+    return map[wrap(y, mapH)][wrap(x, mapW)];
 }
 
 function canWalk(x, y) {
@@ -98,26 +99,16 @@ function update(dt) {
         mouseDX = 0;
     }
 
-    // 키보드 회전
-    if (keys['ArrowLeft']) rotate(2 * dt);
-    if (keys['ArrowRight']) rotate(-2 * dt);
+    // 자동 전진
+    var mx = pdx * AUTO_SPEED * dt;
+    var my = pdy * AUTO_SPEED * dt;
+    var r = 0.25;
+    if (canWalk(px + mx + Math.sign(mx) * r, py)) px += mx;
+    if (canWalk(px, py + my + Math.sign(my) * r)) py += my;
 
-    // 이동
-    var speed = 3 * dt;
-    var mx = 0, my = 0;
-    if (keys['KeyW'] || keys['ArrowUp'])   { mx += pdx; my += pdy; }
-    if (keys['KeyS'] || keys['ArrowDown']) { mx -= pdx; my -= pdy; }
-    if (keys['KeyA']) { mx += pdy; my -= pdx; }
-    if (keys['KeyD']) { mx -= pdy; my += pdx; }
-
-    var len = Math.sqrt(mx * mx + my * my);
-    if (len > 0) {
-        mx = mx / len * speed;
-        my = my / len * speed;
-        var r = 0.25;
-        if (canWalk(px + mx + Math.sign(mx) * r, py)) px += mx;
-        if (canWalk(px, py + my + Math.sign(my) * r)) py += my;
-    }
+    // 위치 래핑 (무한루프)
+    px = wrap(px, mapW);
+    py = wrap(py, mapH);
 
     // 사격 플래시
     if (shooting) { flashTimer = 6; shooting = false; }
@@ -160,20 +151,17 @@ function render() {
 
         // 색상
         var c = wallColors[wall] || [200, 200, 200];
-        var r = c[0], g = c[1], b = c[2];
-        if (side === 1) { r >>= 1; g >>= 1; b >>= 1; } // 측면 어둡게
+        var cr = c[0], cg = c[1], cb = c[2];
+        if (side === 1) { cr >>= 1; cg >>= 1; cb >>= 1; }
 
         // 그리기
         for (var y = 0; y < H; y++) {
             var i = (y * W + x) * 4;
             if (y < top) {
-                // 천장
                 buf[i] = 20; buf[i+1] = 20; buf[i+2] = 35; buf[i+3] = 255;
             } else if (y <= bot) {
-                // 벽
-                buf[i] = r; buf[i+1] = g; buf[i+2] = b; buf[i+3] = 255;
+                buf[i] = cr; buf[i+1] = cg; buf[i+2] = cb; buf[i+3] = 255;
             } else {
-                // 바닥
                 buf[i] = 50; buf[i+1] = 40; buf[i+2] = 30; buf[i+3] = 255;
             }
         }
@@ -204,7 +192,7 @@ function render() {
     // 미니맵
     drawMinimap();
 
-    // 안내 (포인터락 안됐을때)
+    // 시작 화면
     if (!locked) {
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, 0, W, H);
@@ -217,7 +205,7 @@ function render() {
         ctx.fillText('클릭하여 시작', W/2, H/2 + 20);
         ctx.font = '14px monospace';
         ctx.fillStyle = '#888';
-        ctx.fillText('WASD 이동 | 마우스 시점 | 좌클릭 사격', W/2, H/2 + 60);
+        ctx.fillText('자동 전진 | 마우스 시점 | 좌클릭 사격', W/2, H/2 + 60);
         ctx.textAlign = 'left';
     }
 }
@@ -244,6 +232,7 @@ function drawMinimap() {
             ctx.fillRect(ox + x * s, oy + y * s, s, s);
         }
     }
+    // 플레이어 위치 (래핑된 좌표)
     ctx.fillStyle = '#0f0';
     ctx.fillRect(ox + px * s - 1.5, oy + py * s - 1.5, 3, 3);
     ctx.globalAlpha = 1;
