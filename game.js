@@ -1,30 +1,29 @@
-// ===== 설정 =====
+// ===== 설정 ===== // 2026-09-21 클로드 수정: 복도 축소 + 이중버퍼링
 var W = 320, H = 200;
 var AUTO_SPEED = 3.0;
-var FOG_DIST = 10;
+var FOG_DIST = 12;
 
-// ===== 맵 =====
+// ===== 맵 (6칸 복도) =====
 var map = [
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
 ];
 var mapW = map[0].length, mapH = map.length;
 
-var markers = [];
 var totalDist = 0;
 
 // ===== 플레이어 =====
@@ -38,15 +37,19 @@ var shooting = false;
 var flashTimer = 0;
 var isMobile = 'ontouchstart' in window;
 
-// ===== 캔버스 =====
+// ===== 캔버스 (이중 버퍼링) =====
 var canvas = document.getElementById('c');
 var ctx = canvas.getContext('2d');
 canvas.width = W;
 canvas.height = H;
 
-var imgData = ctx.createImageData(W, H);
+var offCanvas = document.createElement('canvas');
+offCanvas.width = W;
+offCanvas.height = H;
+var offCtx = offCanvas.getContext('2d');
+
+var imgData = offCtx.createImageData(W, H);
 var buf = imgData.data;
-var zBuffer = new Float64Array(W);
 
 // ===== 입력 이벤트 =====
 if (isMobile) {
@@ -108,10 +111,13 @@ function render() {
             steps++;
         }
         if (wall === 0) {
-            zBuffer[x] = FOG_DIST;
             for (var y = 0; y < H; y++) {
                 var i = (y * W + x) * 4;
-                buf[i] = 5; buf[i+1] = 3; buf[i+2] = 10; buf[i+3] = 255;
+                if (y < H / 2) {
+                    buf[i] = 8; buf[i+1] = 5; buf[i+2] = 15; buf[i+3] = 255;
+                } else {
+                    buf[i] = 25; buf[i+1] = 18; buf[i+2] = 10; buf[i+3] = 255;
+                }
             }
             continue;
         }
@@ -119,7 +125,6 @@ function render() {
         var dist = side === 0
             ? (mx - px + (1 - sx) / 2) / rdx
             : (my - py + (1 - sy) / 2) / rdy;
-        zBuffer[x] = dist;
 
         var lh = (H / dist) | 0;
         var top = (H / 2 - lh / 2) | 0;
@@ -129,7 +134,7 @@ function render() {
         if (bot >= H) bot = H - 1;
 
         var bright = 1 - Math.min(1, dist / FOG_DIST);
-        if (side === 1) bright *= 0.6;
+        if (side === 1) bright *= 0.7;
 
         var wallX = side === 0 ? py + dist * rdy : px + dist * rdx;
         wallX -= Math.floor(wallX);
@@ -138,13 +143,11 @@ function render() {
         var texStep = TEX_SIZE / lh;
         var texPos = (top - realTop) * texStep;
 
-        // 천장 (단색)
         for (var y = 0; y < top; y++) {
             var i = (y * W + x) * 4;
-            buf[i] = 5; buf[i+1] = 3; buf[i+2] = 10; buf[i+3] = 255;
+            buf[i] = 8; buf[i+1] = 5; buf[i+2] = 15; buf[i+3] = 255;
         }
 
-        // 벽 (텍스처)
         for (var y = top; y <= bot; y++) {
             var i = (y * W + x) * 4;
             var texY = texPos & MASK;
@@ -156,62 +159,63 @@ function render() {
             buf[i+3] = 255;
         }
 
-        // 바닥 (단색)
         for (var y = bot + 1; y < H; y++) {
             var i = (y * W + x) * 4;
-            buf[i] = 15; buf[i+1] = 10; buf[i+2] = 5; buf[i+3] = 255;
+            buf[i] = 25; buf[i+1] = 18; buf[i+2] = 10; buf[i+3] = 255;
         }
     }
-    ctx.putImageData(imgData, 0, 0);
+
+    offCtx.putImageData(imgData, 0, 0);
 
     // 십자선
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(W/2 - 5, H/2); ctx.lineTo(W/2 - 2, H/2);
-    ctx.moveTo(W/2 + 2, H/2); ctx.lineTo(W/2 + 5, H/2);
-    ctx.moveTo(W/2, H/2 - 5); ctx.lineTo(W/2, H/2 - 2);
-    ctx.moveTo(W/2, H/2 + 2); ctx.lineTo(W/2, H/2 + 5);
-    ctx.stroke();
+    offCtx.strokeStyle = '#fff';
+    offCtx.lineWidth = 1;
+    offCtx.beginPath();
+    offCtx.moveTo(W/2 - 5, H/2); offCtx.lineTo(W/2 - 2, H/2);
+    offCtx.moveTo(W/2 + 2, H/2); offCtx.lineTo(W/2 + 5, H/2);
+    offCtx.moveTo(W/2, H/2 - 5); offCtx.lineTo(W/2, H/2 - 2);
+    offCtx.moveTo(W/2, H/2 + 2); offCtx.lineTo(W/2, H/2 + 5);
+    offCtx.stroke();
 
     // 총
     var bx = W / 2, by = H - 10;
     var rc = flashTimer > 0 ? -4 : 0;
-    ctx.fillStyle = '#444';
-    ctx.fillRect(bx - 6, by - 40 + rc, 12, 25);
-    ctx.fillStyle = '#333';
-    ctx.fillRect(bx - 3, by - 55 + rc, 6, 18);
-    ctx.fillStyle = '#553322';
-    ctx.fillRect(bx - 7, by - 15 + rc, 14, 18);
+    offCtx.fillStyle = '#444';
+    offCtx.fillRect(bx - 6, by - 40 + rc, 12, 25);
+    offCtx.fillStyle = '#333';
+    offCtx.fillRect(bx - 3, by - 55 + rc, 6, 18);
+    offCtx.fillStyle = '#553322';
+    offCtx.fillRect(bx - 7, by - 15 + rc, 14, 18);
 
-    // 사격 플래시
     if (flashTimer > 0) {
-        ctx.fillStyle = 'rgba(255,200,50,' + (flashTimer / 6) + ')';
-        ctx.beginPath();
-        ctx.arc(W/2, H - 70, 12, 0, Math.PI * 2);
-        ctx.fill();
+        offCtx.fillStyle = 'rgba(255,200,50,' + (flashTimer / 6) + ')';
+        offCtx.beginPath();
+        offCtx.arc(W/2, H - 70, 12, 0, Math.PI * 2);
+        offCtx.fill();
     }
 
     // 거리
-    ctx.fillStyle = '#ff0';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(Math.floor(totalDist) + 'm', W - 5, 12);
-    ctx.textAlign = 'left';
+    offCtx.fillStyle = '#ff0';
+    offCtx.font = '10px monospace';
+    offCtx.textAlign = 'right';
+    offCtx.fillText(Math.floor(totalDist) + 'm', W - 5, 12);
+    offCtx.textAlign = 'left';
 
     // 시작 화면
     if (!locked) {
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = '#f00';
-        ctx.font = '20px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('DOOM FPS', W/2, H/2 - 15);
-        ctx.fillStyle = '#ccc';
-        ctx.font = '10px monospace';
-        ctx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W/2, H/2 + 10);
-        ctx.textAlign = 'left';
+        offCtx.fillStyle = 'rgba(0,0,0,0.6)';
+        offCtx.fillRect(0, 0, W, H);
+        offCtx.fillStyle = '#f00';
+        offCtx.font = '20px monospace';
+        offCtx.textAlign = 'center';
+        offCtx.fillText('DOOM FPS', W/2, H/2 - 15);
+        offCtx.fillStyle = '#ccc';
+        offCtx.font = '10px monospace';
+        offCtx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W/2, H/2 + 10);
+        offCtx.textAlign = 'left';
     }
+
+    ctx.drawImage(offCanvas, 0, 0);
 }
 
 // ===== 게임 루프 =====
