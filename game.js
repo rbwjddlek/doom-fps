@@ -33,6 +33,21 @@ var wallColors = [
     [60, 120, 60],
 ];
 
+// ===== 기둥 마커 (번호 표시용) =====
+var markers = [
+    { x: 5.5,  y: 2.5,  label: '1' },
+    { x: 10.5, y: 2.5,  label: '2' },
+    { x: 3.5,  y: 5.5,  label: '3' },
+    { x: 12.5, y: 5.5,  label: '4' },
+    { x: 7.5,  y: 7.5,  label: '5' },
+    { x: 8.5,  y: 7.5,  label: '6' },
+    { x: 4.5,  y: 10.5, label: '7' },
+    { x: 11.5, y: 10.5, label: '8' },
+    { x: 3.5,  y: 13.5, label: '9' },
+    { x: 12.5, y: 13.5, label: '10' },
+];
+var totalDist = 0;
+
 // ===== 플레이어 (아래 방향으로 자동 전진) =====
 var px = 8, py = 0.5;
 var pdx = 0, pdy = 1;
@@ -43,6 +58,8 @@ var mouseDX = 0;
 var locked = false;
 var shooting = false;
 var flashTimer = 0;
+var isMobile = 'ontouchstart' in window;
+var touchStartX = 0;
 
 // ===== 캔버스 =====
 var canvas = document.getElementById('c');
@@ -54,19 +71,41 @@ var imgData = ctx.createImageData(W, H);
 var buf = imgData.data;
 
 // ===== 입력 이벤트 =====
-document.addEventListener('mousemove', function(e) {
-    if (locked) mouseDX += e.movementX;
-});
-document.addEventListener('mousedown', function(e) {
-    if (!locked) {
-        canvas.requestPointerLock();
-    } else if (e.button === 0) {
-        shooting = true;
-    }
-});
-document.addEventListener('pointerlockchange', function() {
-    locked = document.pointerLockElement === canvas;
-});
+if (isMobile) {
+    // 모바일: 터치로 시작, 좌우 스와이프로 시점, 탭으로 사격
+    canvas.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        if (!locked) {
+            locked = true;
+        } else {
+            touchStartX = e.touches[0].clientX;
+            shooting = true;
+        }
+    });
+    canvas.addEventListener('touchmove', function(e) {
+        e.preventDefault();
+        if (locked && e.touches.length > 0) {
+            var dx = e.touches[0].clientX - touchStartX;
+            touchStartX = e.touches[0].clientX;
+            mouseDX += dx;
+        }
+    });
+} else {
+    // PC: 포인터락
+    document.addEventListener('mousemove', function(e) {
+        if (locked) mouseDX += e.movementX;
+    });
+    document.addEventListener('mousedown', function(e) {
+        if (!locked) {
+            canvas.requestPointerLock();
+        } else if (e.button === 0) {
+            shooting = true;
+        }
+    });
+    document.addEventListener('pointerlockchange', function() {
+        locked = document.pointerLockElement === canvas;
+    });
+}
 
 // ===== 유틸 =====
 function wrap(v, max) {
@@ -105,6 +144,9 @@ function update(dt) {
     var r = 0.25;
     if (canWalk(px + mx + Math.sign(mx) * r, py)) px += mx;
     if (canWalk(px, py + my + Math.sign(my) * r)) py += my;
+
+    // 이동 거리 누적
+    totalDist += AUTO_SPEED * dt;
 
     // 위치 래핑 (무한루프)
     px = wrap(px, mapW);
@@ -189,6 +231,16 @@ function render() {
         ctx.fill();
     }
 
+    // 기둥 번호
+    drawMarkers();
+
+    // 거리 표시
+    ctx.fillStyle = '#ff0';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.floor(totalDist) + 'm', W - 10, 20);
+    ctx.textAlign = 'left';
+
     // 미니맵
     drawMinimap();
 
@@ -202,10 +254,10 @@ function render() {
         ctx.fillText('DOOM FPS', W/2, H/2 - 30);
         ctx.fillStyle = '#ccc';
         ctx.font = '18px monospace';
-        ctx.fillText('클릭하여 시작', W/2, H/2 + 20);
+        ctx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W/2, H/2 + 20);
         ctx.font = '14px monospace';
         ctx.fillStyle = '#888';
-        ctx.fillText('자동 전진 | 마우스 시점 | 좌클릭 사격', W/2, H/2 + 60);
+        ctx.fillText(isMobile ? '자동 전진 | 좌우 스와이프 시점 | 탭 사격' : '자동 전진 | 마우스 시점 | 좌클릭 사격', W/2, H/2 + 60);
         ctx.textAlign = 'left';
     }
 }
@@ -219,6 +271,40 @@ function drawGun() {
     ctx.fillRect(bx - 5, by - 110 + recoil, 10, 35);
     ctx.fillStyle = '#553322';
     ctx.fillRect(bx - 14, by - 30 + recoil, 28, 35);
+}
+
+function drawMarkers() {
+    for (var i = 0; i < markers.length; i++) {
+        var m = markers[i];
+        // 래핑 거리 계산
+        var dx = m.x - px;
+        var dy = m.y - py;
+        if (dx > mapW / 2) dx -= mapW;
+        if (dx < -mapW / 2) dx += mapW;
+        if (dy > mapH / 2) dy -= mapH;
+        if (dy < -mapH / 2) dy += mapH;
+
+        // 카메라 공간 변환
+        var invDet = 1.0 / (plx * pdy - pdx * ply);
+        var tx = invDet * (pdy * dx - pdx * dy);
+        var ty = invDet * (-ply * dx + plx * dy);
+
+        if (ty <= 0.3) continue; // 뒤에 있으면 스킵
+
+        var sx = Math.floor(W / 2 * (1 + tx / ty));
+        var sy = Math.floor(H / 2 + 30 / ty);
+        var size = Math.floor(200 / ty);
+        if (size < 8) size = 8;
+        if (size > 60) size = 60;
+
+        if (sx > -50 && sx < W + 50) {
+            ctx.fillStyle = '#ff0';
+            ctx.font = size + 'px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(m.label, sx, sy);
+        }
+    }
+    ctx.textAlign = 'left';
 }
 
 function drawMinimap() {
