@@ -100,11 +100,20 @@ function render() {
         if (rdy < 0) { sy = -1; sdy = (py - my) * ddy; }
         else         { sy = 1;  sdy = (my + 1 - py) * ddy; }
 
-        var side, wall = 0;
-        while (wall === 0) {
+        var side, wall = 0, steps = 0;
+        while (wall === 0 && steps < 64) {
             if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; }
             else           { sdy += ddy; my += sy; side = 1; }
             wall = getWall(mx, my);
+            steps++;
+        }
+        if (wall === 0) {
+            zBuffer[x] = FOG_DIST;
+            for (var y = 0; y < H; y++) {
+                var i = (y * W + x) * 4;
+                buf[i] = 5; buf[i+1] = 3; buf[i+2] = 10; buf[i+3] = 255;
+            }
+            continue;
         }
 
         var dist = side === 0
