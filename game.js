@@ -1,9 +1,9 @@
-// ===== 설정 ===== // 2026-09-21 클로드 수정: 복도 축소 + 이중버퍼링
-var W = 320, H = 200;
-var AUTO_SPEED = 3.0;
-var FOG_DIST = 12;
+// ===== 설정 =====
+var W = 160, H = 100;       // 해상도 (작을수록 빠름)
+var SPEED = 3;               // 이동 속도
+var FOG = 12;                // 안개 거리 (멀수록 밝음)
 
-// ===== 맵 (6칸 복도) =====
+// ===== 맵 (16x16, 1=벽 0=빈칸) =====
 var map = [
     [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
     [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
@@ -22,208 +22,158 @@ var map = [
     [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
     [1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1],
 ];
-var mapW = map[0].length, mapH = map.length;
-
-var totalDist = 0;
+var mapSize = 16;
 
 // ===== 플레이어 =====
-var px = 8, py = 0.5;
-var pdx = 0, pdy = 1;
-var plx = 0.66, ply = 0;
+var px = 8, py = 0.5;        // 위치
+var dx = 0, dy = 1;          // 방향 (남쪽)
+var planeX = 0.66, planeY = 0; // 카메라 시야각
+var totalDist = 0;
 
-// ===== 입력 =====
-var locked = false;
-var shooting = false;
-var flashTimer = 0;
-var isMobile = 'ontouchstart' in window;
-
-// ===== 캔버스 (이중 버퍼링) =====
+// ===== 캔버스 =====
 var canvas = document.getElementById('c');
 var ctx = canvas.getContext('2d');
 canvas.width = W;
 canvas.height = H;
+var started = false;
+var isMobile = 'ontouchstart' in window;
 
-var offCanvas = document.createElement('canvas');
-offCanvas.width = W;
-offCanvas.height = H;
-var offCtx = offCanvas.getContext('2d');
-
-var imgData = offCtx.createImageData(W, H);
-var buf = imgData.data;
-
-// ===== 입력 이벤트 =====
+// ===== 입력 =====
 if (isMobile) {
     canvas.addEventListener('touchstart', function(e) {
         e.preventDefault();
-        if (!locked) { locked = true; } else { shooting = true; }
+        started = true;
     });
 } else {
-    document.addEventListener('mousedown', function(e) {
-        if (!locked) { canvas.requestPointerLock(); } else if (e.button === 0) { shooting = true; }
+    document.addEventListener('mousedown', function() {
+        if (!started) canvas.requestPointerLock();
     });
     document.addEventListener('pointerlockchange', function() {
-        locked = document.pointerLockElement === canvas;
+        started = document.pointerLockElement === canvas;
     });
 }
 
 // ===== 유틸 =====
-function wrap(v, max) { return ((v % max) + max) % max; }
-function getWall(x, y) { return map[wrap(y, mapH)][wrap(x, mapW)]; }
-function canWalk(x, y) { return getWall(Math.floor(x), Math.floor(y)) === 0; }
+function wrap(v) { return ((v % mapSize) + mapSize) % mapSize; }
+function wallAt(x, y) { return map[wrap(y)][wrap(x)]; }
 
 // ===== 업데이트 =====
 function update(dt) {
-    var mx = pdx * AUTO_SPEED * dt;
-    var my = pdy * AUTO_SPEED * dt;
-    var r = 0.25;
-    if (canWalk(px + mx + Math.sign(mx) * r, py)) px += mx;
-    if (canWalk(px, py + my + Math.sign(my) * r)) py += my;
-    totalDist += AUTO_SPEED * dt;
-    px = wrap(px, mapW);
-    py = wrap(py, mapH);
-    if (shooting) { flashTimer = 6; shooting = false; }
-    if (flashTimer > 0) flashTimer--;
+    var nx = px + dx * SPEED * dt;
+    var ny = py + dy * SPEED * dt;
+    if (wallAt(Math.floor(nx), Math.floor(py)) === 0) px = nx;
+    if (wallAt(Math.floor(px), Math.floor(ny)) === 0) py = ny;
+    px = wrap(px);
+    py = wrap(py);
+    totalDist += SPEED * dt;
 }
 
 // ===== 렌더링 =====
 function render() {
-    var MASK = TEX_SIZE - 1;
+    // 천장
+    ctx.fillStyle = '#0a0618';
+    ctx.fillRect(0, 0, W, H / 2);
+    // 바닥
+    ctx.fillStyle = '#1a120a';
+    ctx.fillRect(0, H / 2, W, H / 2);
 
+    // 벽 (레이캐스팅)
     for (var x = 0; x < W; x++) {
-        var camX = 2 * x / W - 1;
-        var rdx = pdx + plx * camX;
-        var rdy = pdy + ply * camX;
+        var cam = 2 * x / W - 1;
+        var rx = dx + planeX * cam;
+        var ry = dy + planeY * cam;
 
-        var mx = px | 0, my = py | 0;
-        var ddx = Math.abs(1 / rdx), ddy = Math.abs(1 / rdy);
-        var sx, sy, sdx, sdy;
+        // DDA 초기화
+        var mapX = px | 0, mapY = py | 0;
+        var ddx = Math.abs(1 / rx), ddy = Math.abs(1 / ry);
+        var stepX, stepY, sideX, sideY;
 
-        if (rdx < 0) { sx = -1; sdx = (px - mx) * ddx; }
-        else         { sx = 1;  sdx = (mx + 1 - px) * ddx; }
-        if (rdy < 0) { sy = -1; sdy = (py - my) * ddy; }
-        else         { sy = 1;  sdy = (my + 1 - py) * ddy; }
+        if (rx < 0) { stepX = -1; sideX = (px - mapX) * ddx; }
+        else        { stepX = 1;  sideX = (mapX + 1 - px) * ddx; }
+        if (ry < 0) { stepY = -1; sideY = (py - mapY) * ddy; }
+        else        { stepY = 1;  sideY = (mapY + 1 - py) * ddy; }
 
-        var side, wall = 0, steps = 0;
-        while (wall === 0 && steps < 64) {
-            if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; }
-            else           { sdy += ddy; my += sy; side = 1; }
-            wall = getWall(mx, my);
-            steps++;
-        }
-        if (wall === 0) {
-            for (var y = 0; y < H; y++) {
-                var i = (y * W + x) * 4;
-                if (y < H / 2) {
-                    buf[i] = 8; buf[i+1] = 5; buf[i+2] = 15; buf[i+3] = 255;
-                } else {
-                    buf[i] = 25; buf[i+1] = 18; buf[i+2] = 10; buf[i+3] = 255;
-                }
+        // DDA 루프: 벽 찾을때까지 한칸씩 전진
+        var side, hit = 0, n = 0;
+        while (hit === 0 && n < 64) {
+            if (sideX < sideY) {
+                sideX += ddx; mapX += stepX; side = 0;
+            } else {
+                sideY += ddy; mapY += stepY; side = 1;
             }
-            continue;
+            hit = wallAt(mapX, mapY);
+            n++;
         }
+        if (hit === 0) continue;
 
+        // 벽까지 거리
         var dist = side === 0
-            ? (mx - px + (1 - sx) / 2) / rdx
-            : (my - py + (1 - sy) / 2) / rdy;
+            ? (mapX - px + (1 - stepX) / 2) / rx
+            : (mapY - py + (1 - stepY) / 2) / ry;
 
-        var lh = (H / dist) | 0;
-        var top = (H / 2 - lh / 2) | 0;
-        var bot = (H / 2 + lh / 2) | 0;
-        var realTop = top;
+        // 벽 높이
+        var h = (H / dist) | 0;
+        var top = (H / 2 - h / 2) | 0;
+        var bot = (H / 2 + h / 2) | 0;
         if (top < 0) top = 0;
-        if (bot >= H) bot = H - 1;
+        if (bot > H) bot = H;
 
-        var bright = 1 - Math.min(1, dist / FOG_DIST);
+        // 밝기 (거리→어둡게, 옆면→더 어둡게)
+        var bright = 1 - dist / FOG;
+        if (bright < 0) bright = 0;
         if (side === 1) bright *= 0.7;
 
-        var wallX = side === 0 ? py + dist * rdy : px + dist * rdx;
-        wallX -= Math.floor(wallX);
-        var texX = (wallX * TEX_SIZE) & MASK;
-        var tex = TEX[wall];
-        var texStep = TEX_SIZE / lh;
-        var texPos = (top - realTop) * texStep;
-
-        for (var y = 0; y < top; y++) {
-            var i = (y * W + x) * 4;
-            buf[i] = 8; buf[i+1] = 5; buf[i+2] = 15; buf[i+3] = 255;
-        }
-
-        for (var y = top; y <= bot; y++) {
-            var i = (y * W + x) * 4;
-            var texY = texPos & MASK;
-            texPos += texStep;
-            var ti = (texY * TEX_SIZE + texX) * 4;
-            buf[i]   = tex[ti]   * bright | 0;
-            buf[i+1] = tex[ti+1] * bright | 0;
-            buf[i+2] = tex[ti+2] * bright | 0;
-            buf[i+3] = 255;
-        }
-
-        for (var y = bot + 1; y < H; y++) {
-            var i = (y * W + x) * 4;
-            buf[i] = 25; buf[i+1] = 18; buf[i+2] = 10; buf[i+3] = 255;
-        }
+        // 벽 그리기 (벽돌색)
+        var r = 130 * bright | 0;
+        var g = 45 * bright | 0;
+        var b = 35 * bright | 0;
+        ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+        ctx.fillRect(x, top, 1, bot - top);
     }
-
-    offCtx.putImageData(imgData, 0, 0);
 
     // 십자선
-    offCtx.strokeStyle = '#fff';
-    offCtx.lineWidth = 1;
-    offCtx.beginPath();
-    offCtx.moveTo(W/2 - 5, H/2); offCtx.lineTo(W/2 - 2, H/2);
-    offCtx.moveTo(W/2 + 2, H/2); offCtx.lineTo(W/2 + 5, H/2);
-    offCtx.moveTo(W/2, H/2 - 5); offCtx.lineTo(W/2, H/2 - 2);
-    offCtx.moveTo(W/2, H/2 + 2); offCtx.lineTo(W/2, H/2 + 5);
-    offCtx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(W / 2 - 4, H / 2, 3, 1);
+    ctx.fillRect(W / 2 + 2, H / 2, 3, 1);
+    ctx.fillRect(W / 2, H / 2 - 4, 1, 3);
+    ctx.fillRect(W / 2, H / 2 + 2, 1, 3);
 
-    // 총
-    var bx = W / 2, by = H - 10;
-    var rc = flashTimer > 0 ? -4 : 0;
-    offCtx.fillStyle = '#444';
-    offCtx.fillRect(bx - 6, by - 40 + rc, 12, 25);
-    offCtx.fillStyle = '#333';
-    offCtx.fillRect(bx - 3, by - 55 + rc, 6, 18);
-    offCtx.fillStyle = '#553322';
-    offCtx.fillRect(bx - 7, by - 15 + rc, 14, 18);
-
-    if (flashTimer > 0) {
-        offCtx.fillStyle = 'rgba(255,200,50,' + (flashTimer / 6) + ')';
-        offCtx.beginPath();
-        offCtx.arc(W/2, H - 70, 12, 0, Math.PI * 2);
-        offCtx.fill();
-    }
+    // 총 (사각형 3개)
+    ctx.fillStyle = '#555';
+    ctx.fillRect(W / 2 - 4, H - 25, 8, 15);
+    ctx.fillStyle = '#444';
+    ctx.fillRect(W / 2 - 2, H - 35, 4, 12);
+    ctx.fillStyle = '#553322';
+    ctx.fillRect(W / 2 - 5, H - 10, 10, 10);
 
     // 거리
-    offCtx.fillStyle = '#ff0';
-    offCtx.font = '10px monospace';
-    offCtx.textAlign = 'right';
-    offCtx.fillText(Math.floor(totalDist) + 'm', W - 5, 12);
-    offCtx.textAlign = 'left';
+    ctx.fillStyle = '#ff0';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.floor(totalDist) + 'm', W - 3, 10);
+    ctx.textAlign = 'left';
 
     // 시작 화면
-    if (!locked) {
-        offCtx.fillStyle = 'rgba(0,0,0,0.6)';
-        offCtx.fillRect(0, 0, W, H);
-        offCtx.fillStyle = '#f00';
-        offCtx.font = '20px monospace';
-        offCtx.textAlign = 'center';
-        offCtx.fillText('DOOM FPS', W/2, H/2 - 15);
-        offCtx.fillStyle = '#ccc';
-        offCtx.font = '10px monospace';
-        offCtx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W/2, H/2 + 10);
-        offCtx.textAlign = 'left';
+    if (!started) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#f00';
+        ctx.font = '14px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('DOOM FPS', W / 2, H / 2 - 8);
+        ctx.fillStyle = '#ccc';
+        ctx.font = '8px monospace';
+        ctx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W / 2, H / 2 + 8);
+        ctx.textAlign = 'left';
     }
-
-    ctx.drawImage(offCanvas, 0, 0);
 }
 
 // ===== 게임 루프 =====
-var lastTime = 0;
-function loop(time) {
-    var dt = Math.min((time - lastTime) / 1000, 0.05);
-    lastTime = time;
-    if (locked) update(dt);
+var last = 0;
+function loop(t) {
+    var dt = Math.min((t - last) / 1000, 0.05);
+    last = t;
+    if (started) update(dt);
     render();
     requestAnimationFrame(loop);
 }
