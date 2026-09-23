@@ -1,7 +1,7 @@
 // ===== 설정 =====
-var W = 160, H = 100;       // 해상도 (작을수록 빠름)
-var SPEED = 3;               // 이동 속도
-var FOG = 12;                // 안개 거리 (멀수록 밝음)
+var W = 320, H = 200;        // 해상도
+var SPEED = 3;                // 이동 속도
+var FOG = 12;                 // 안개 거리
 
 // ===== 맵 (16x16, 1=벽 0=빈칸) =====
 var map = [
@@ -25,9 +25,9 @@ var map = [
 var mapSize = 16;
 
 // ===== 플레이어 =====
-var px = 8, py = 0.5;        // 위치
-var dx = 0, dy = 1;          // 방향 (남쪽)
-var planeX = 0.66, planeY = 0; // 카메라 시야각
+var px = 8, py = 0.5;           // 위치
+var dx = 0, dy = 1;             // 방향 (남쪽)
+var planeX = 0.66, planeY = 0;  // 카메라 시야각
 var totalDist = 0;
 
 // ===== 캔버스 =====
@@ -71,10 +71,10 @@ function update(dt) {
 // ===== 렌더링 =====
 function render() {
     // 천장
-    ctx.fillStyle = '#0a0618';
+    ctx.fillStyle = '#100820';
     ctx.fillRect(0, 0, W, H / 2);
     // 바닥
-    ctx.fillStyle = '#1a120a';
+    ctx.fillStyle = '#201808';
     ctx.fillRect(0, H / 2, W, H / 2);
 
     // 벽 (레이캐스팅)
@@ -86,20 +86,20 @@ function render() {
         // DDA 초기화
         var mapX = px | 0, mapY = py | 0;
         var ddx = Math.abs(1 / rx), ddy = Math.abs(1 / ry);
-        var stepX, stepY, sideX, sideY;
+        var stepX, stepY, sideDistX, sideDistY;
 
-        if (rx < 0) { stepX = -1; sideX = (px - mapX) * ddx; }
-        else        { stepX = 1;  sideX = (mapX + 1 - px) * ddx; }
-        if (ry < 0) { stepY = -1; sideY = (py - mapY) * ddy; }
-        else        { stepY = 1;  sideY = (mapY + 1 - py) * ddy; }
+        if (rx < 0) { stepX = -1; sideDistX = (px - mapX) * ddx; }
+        else        { stepX = 1;  sideDistX = (mapX + 1 - px) * ddx; }
+        if (ry < 0) { stepY = -1; sideDistY = (py - mapY) * ddy; }
+        else        { stepY = 1;  sideDistY = (mapY + 1 - py) * ddy; }
 
-        // DDA 루프: 벽 찾을때까지 한칸씩 전진
+        // DDA 루프: 벽 찾을때까지 전진
         var side, hit = 0, n = 0;
         while (hit === 0 && n < 64) {
-            if (sideX < sideY) {
-                sideX += ddx; mapX += stepX; side = 0;
+            if (sideDistX < sideDistY) {
+                sideDistX += ddx; mapX += stepX; side = 0;
             } else {
-                sideY += ddy; mapY += stepY; side = 1;
+                sideDistY += ddy; mapY += stepY; side = 1;
             }
             hit = wallAt(mapX, mapY);
             n++;
@@ -123,9 +123,14 @@ function render() {
         if (bright < 0) bright = 0;
         if (side === 1) bright *= 0.7;
 
-        // 벽 그리기 (벽돌색)
-        var r = 130 * bright | 0;
-        var g = 45 * bright | 0;
+        // 줄눈 효과 (벽 셀 경계에서 어둡게)
+        var wallHit = side === 0 ? py + dist * ry : px + dist * rx;
+        wallHit -= Math.floor(wallHit);
+        if (wallHit < 0.05 || wallHit > 0.95) bright *= 0.4;
+
+        // 벽 색 (벽돌색 * 밝기)
+        var r = 140 * bright | 0;
+        var g = 50 * bright | 0;
         var b = 35 * bright | 0;
         ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
         ctx.fillRect(x, top, 1, bot - top);
@@ -133,24 +138,24 @@ function render() {
 
     // 십자선
     ctx.fillStyle = '#fff';
-    ctx.fillRect(W / 2 - 4, H / 2, 3, 1);
-    ctx.fillRect(W / 2 + 2, H / 2, 3, 1);
-    ctx.fillRect(W / 2, H / 2 - 4, 1, 3);
-    ctx.fillRect(W / 2, H / 2 + 2, 1, 3);
+    ctx.fillRect(W / 2 - 5, H / 2, 4, 1);
+    ctx.fillRect(W / 2 + 2, H / 2, 4, 1);
+    ctx.fillRect(W / 2, H / 2 - 5, 1, 4);
+    ctx.fillRect(W / 2, H / 2 + 2, 1, 4);
 
-    // 총 (사각형 3개)
+    // 총
     ctx.fillStyle = '#555';
-    ctx.fillRect(W / 2 - 4, H - 25, 8, 15);
+    ctx.fillRect(W / 2 - 6, H - 45, 12, 25);
     ctx.fillStyle = '#444';
-    ctx.fillRect(W / 2 - 2, H - 35, 4, 12);
+    ctx.fillRect(W / 2 - 3, H - 60, 6, 18);
     ctx.fillStyle = '#553322';
-    ctx.fillRect(W / 2 - 5, H - 10, 10, 10);
+    ctx.fillRect(W / 2 - 7, H - 20, 14, 20);
 
     // 거리
     ctx.fillStyle = '#ff0';
-    ctx.font = '8px monospace';
+    ctx.font = '10px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(Math.floor(totalDist) + 'm', W - 3, 10);
+    ctx.fillText(Math.floor(totalDist) + 'm', W - 5, 14);
     ctx.textAlign = 'left';
 
     // 시작 화면
@@ -158,12 +163,12 @@ function render() {
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
         ctx.fillRect(0, 0, W, H);
         ctx.fillStyle = '#f00';
-        ctx.font = '14px monospace';
+        ctx.font = '20px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('DOOM FPS', W / 2, H / 2 - 8);
+        ctx.fillText('DOOM FPS', W / 2, H / 2 - 12);
         ctx.fillStyle = '#ccc';
-        ctx.font = '8px monospace';
-        ctx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W / 2, H / 2 + 8);
+        ctx.font = '10px monospace';
+        ctx.fillText(isMobile ? '터치하여 시작' : '클릭하여 시작', W / 2, H / 2 + 10);
         ctx.textAlign = 'left';
     }
 }
